@@ -1,35 +1,55 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import React, {useState, useEffect} from 'react';
+import io from 'socket.io-client';
+import Editor from '@monaco-editor/react';
 
-function App() {
-  const [count, setCount] = useState(0)
+const socket = io.connect("http://localhost:5000")
+
+function App(){
+  const [code, setCode] = useState("// Start Coding....");
+  const [roomId, setRoomId] = useState("");
+
+  const runCode = async () =>{
+    try{
+      const response = await fetch("http://localhost:5000/run-code", {
+        method: "POST",
+        headers: { "Content-Type": 'application/json'},
+        body: JSON.stringify({ code, language: "cpp"}),
+      });
+      const data = await response.json();
+      alert ("Output: " + data.output());
+
+    } catch (error) {
+      console.error("Error running code: " + error);
+    }
+  };
+
+
+  const handleEditorChange = (value) => {
+    setCode(value);
+    socket.emit("code_change", {roomId, code: value});
+  };
 
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.jsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
-}
+    <div >
+      <h2> AlgoArena</h2>
 
-export default App
+      <input placeholder = "Enter Room Id" onChange={(e)=>{
+        setRoomId(e.target.value);
+      }}/>
+      <button onclick={()=>socket.emit("join_room", roomId)}>Join Battle</button>
+
+      <button onclick={runCode}>Run Test & code</button>
+      <div>
+        <Editor
+        height="60vh"
+          defaultLanguage="cpp"
+          value={code}
+          onChange={handleEditorChange}
+          theme="vs-dark"
+        />
+      </div>
+    </div>
+  )
+};
+
+export default App;
