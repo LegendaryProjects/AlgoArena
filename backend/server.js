@@ -1,28 +1,46 @@
-import {exec} from "child_process"
-import fs from "fs"
-import path from "path"
-import { spawn } from 'child_process';
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const cors = require('cors');
+const { spawn } = require('child_process');
+const fs = require('fs'); // Using standard fs for sync operations
+const path = require('path');
 
-app.use(express.json())
+// 1. INITIALIZATION
+const app = express();
+app.use(cors());
+app.use(express.json()); // Essential to read the 'code' body from the request
 
+const server = http.createServer(app);
+const io = new Server(server, {
+    cors: {
+        origin: "http://localhost:3000", // Change this if your frontend port is different
+        methods: ["GET", "POST"]
+    }
+});
 
-
-
-app.post('/run-code', async (req, res) => {
+// 2. DOCKER EXECUTION ROUTE
+app.post('/run-code', (req, res) => {
     const { code } = req.body;
+    
+    // Setup file paths
     const fileName = `solution_${Date.now()}.cpp`;
     const tempDir = path.join(__dirname, 'temp');
     const filePath = path.join(tempDir, fileName);
 
     // 1. Create temp directory if it doesn't exist
-    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
+    if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir);
+    }
 
-    // 2. Write code to the temporary file
-    fs.writeFileSync(filePath, code);
+    // 2. Write user code to the temporary file
+    try {
+        fs.writeFileSync(filePath, code);
+    } catch (err) {
+        return res.status(500).json({ success: false, output: "Failed to write file" });
+    }
 
-    // 3. Command to compile and run inside Docker with safety limits
-    // --rm: remove container after use | --network none: no internet
-    // --memory: limit RAM | --cpus: limit CPU usage
+    // 3. Docker arguments for secured execution
     const dockerArgs = [
         'run', '--rm', 
         '--network', 'none',
@@ -38,17 +56,54 @@ app.post('/run-code', async (req, res) => {
     let output = '';
     let errorOutput = '';
 
-    child.stdout.on('data', (data) => output += data.toString());
-    child.stderr.on('data', (data) => errorOutput += data.toString());
+    child.stdout.on('data', (data) => {
+        output += data.toString();
+    });
 
-    child.on('close', (code) => {
+    child.stderr.on('data', (data) => {
+        errorOutput += data.toString();
+    });
+
+    child.on('close', (exitCode) => {
         // Cleanup: remove the temp file
-        fs.unlinkSync(filePath);
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+        }
         
-        if (code === 0) {
+        // Remove the compiled binary if it exists to keep temp folder clean
+        const binaryPath = path.join(tempDir, 'out');
+        if (fs.existsSync(binaryPath)) {
+            fs.unlinkSync(binaryPath);
+        }
+
+        if (exitCode === 0) {
             res.json({ success: true, output });
         } else {
-            res.json({ success: false, output: errorOutput || "Execution Timed Out or Failed" });
+            res.json({ success: false, output: errorOutput || "Execution Failed" });
         }
     });
+});
+
+// 3. SOCKET.IO LOGIC (For Phase 1 sync)
+io.on('connection', (socket) => {
+    console.log(`User Connected: ${socket.id}`);
+
+    socket.on('join_room', (roomId) => {
+        socket.join(roomId);
+        console.log(`User ${socket.id} joined room: ${roomId}`);
+    });
+
+    socket.on('code_change', ({ roomId, code }) => {
+        socket.to(roomId).emit('receive_code', code);
+    });
+
+    socket.on('disconnect', () => {
+        console.log("User Disconnected", socket.id);
+    });
+});
+
+// 4. START SERVER
+const PORT = 5001; 
+server.listen(PORT, () => {
+    console.log(`AlgoArena Server running on port ${PORT}`);
 });
