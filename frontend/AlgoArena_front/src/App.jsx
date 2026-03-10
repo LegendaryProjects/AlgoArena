@@ -8,20 +8,24 @@ function App(){
   const [code, setCode] = useState("// Start Coding....");
   const [roomId, setRoomId] = useState("");
 
-  const runCode = async () =>{
-    try{
-      const response = await fetch("http://localhost:5000/run-code", {
-        method: "POST",
-        headers: { "Content-Type": 'application/json'},
-        body: JSON.stringify({ code, language: "cpp"}),
-      });
-      const data = await response.json();
-      alert ("Output: " + data.output());
-
-    } catch (error) {
-      console.error("Error running code: " + error);
+  const runCode = async () => {
+  try {
+    const response = await fetch('http://localhost:5000/run-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }) 
+    });
+    const data = await response.json();
+    
+    if (data.success) {
+      alert("Output:\n" + data.output);
+    } else {
+      alert("Error:\n" + data.output);
     }
-  };
+  } catch (err) {
+    console.error("Connection error:", err);
+  }
+};
 
 
   const handleEditorChange = (value) => {

@@ -1,0 +1,10 @@
+# Use a minimal base image to reduce attack surface
+FROM gcc:latest
+
+# Create a non-root user for better security
+RUN useradd -m student
+USER student
+
+WORKDIR /home/student
+
+# The actual code will be mounted at runtime
