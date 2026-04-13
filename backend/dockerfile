@@ -1,10 +1,8 @@
-# Use a minimal base image to reduce attack surface
-FROM gcc:latest
+# Use a super lightweight version of Linux
+FROM alpine:latest
 
-# Create a non-root user for better security
-RUN useradd -m student
-USER student
+# Install the C++ compiler (g++)
+RUN apk add --no-cache g++
 
+# Set the working directory where the code will be injected
 WORKDIR /home/student
-
-# The actual code will be mounted at runtime
