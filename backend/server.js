@@ -9,6 +9,7 @@ import axios from "axios";
 import FormData from "form-data";
 import { fileURLToPath } from "url";
 import { ethers } from "ethers";
+import dotenv from "dotenv";
 
 const app = express();
 const PREFERRED_PORT = Number(process.env.PORT) || 5001;
@@ -21,6 +22,8 @@ app.use(express.json({ limit: "10mb" }));
 // Needed for __dirname in ES modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+dotenv.config({ path: path.join(__dirname, "../blockchain/.env") });
 
 /* =========================================================
    1. SOCKET.IO (REAL-TIME MULTIPLAYER SYNC & REFREE)
@@ -113,14 +116,46 @@ const problems = [
 ];
 
 // ENDPOINT: Send the list of problems to the frontend (WITHOUT the answers!)
-app.get("/problems", (req, res) => {
-  const safeProblems = problems.map(p => ({
-    id: p.id,
-    title: p.title,
-    difficulty: p.difficulty,
-    description: p.description
-  }));
-  res.json({ success: true, problems: safeProblems });
+/* =========================================================
+   ALFA LEETCODE API INTEGRATION
+   ========================================================= */
+
+// 1. Fetch a list of problems for the dropdown
+app.get("/problems", async (req, res) => {
+  try {
+    console.log("Fetching live questions from ALFA LeetCode API...");
+    // Fetch top 100 problems to keep the dropdown broad but manageable
+    const response = await axios.get("https://alfa-leetcode-api.onrender.com/problems?limit=100");
+    
+    // Map the ALFA API response to match our frontend's expected format
+    const safeProblems = response.data.problemsetQuestionList.map(p => ({
+      id: p.titleSlug, // We use the slug as the unique ID now!
+      title: p.title,
+      difficulty: p.difficulty,
+    }));
+
+    res.json({ success: true, problems: safeProblems });
+  } catch (error) {
+    console.error("ALFA API Error:", error.message);
+    res.status(500).json({ success: false, error: "Failed to fetch LeetCode problems" });
+  }
+});
+
+// 2. Fetch the specific description and sample cases for a selected problem
+app.get("/problem/:slug", async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const response = await axios.get(`https://alfa-leetcode-api.onrender.com/select?titleSlug=${slug}`);
+    
+    // ALFA returns the description as HTML, which we will render in React
+    res.json({ 
+      success: true, 
+      descriptionHTML: response.data.question,
+      topicTags: response.data.topicTags
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Failed to fetch problem details" });
+  }
 });
 
 // ENDPOINT: Run code and check against the specific problem ID
@@ -226,20 +261,39 @@ app.post("/proctor-check", async (req, res) => {
 /* =========================================================
    4. WEB3 & BLOCKCHAIN SETUP (HARDHAT)
    ========================================================= */
-// Connect to the local Hardhat Blockchain
-const provider = new ethers.JsonRpcProvider("http://127.0.0.1:8545");
+// Connect to Sepolia by default, or fall back to a local Hardhat node if one is running.
+const rpcUrl = process.env.ALCHEMY_SEPOLIA_URL || process.env.SEPOLIA_RPC_URL || "http://127.0.0.1:8545";
+const provider = new ethers.JsonRpcProvider(rpcUrl);
 
-// Use Hardhat's default Account #0 Private Key to pay for gas fees
-const privateKey = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+// Use the deployer private key from the blockchain env file.
+const privateKey = process.env.PRIVATE_KEY ? `0x${process.env.PRIVATE_KEY.replace(/^0x/, "")}` : "";
+if (!privateKey) {
+  throw new Error("Missing PRIVATE_KEY in blockchain/.env");
+}
 const wallet = new ethers.Wallet(privateKey, provider);
 
-// Load the Contract using the address you just generated
-// MAKE SURE THIS ADDRESS MATCHES YOUR LATEST HARDHAT DEPLOYMENT!
-const contractAddress = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+// Prefer the Sepolia deployment if present, otherwise use the local Hardhat deployment.
+const contractAddress = process.env.CONTRACT_ADDRESS || "0x63ED8bA3073BE722fdb30cb789966e6928c1a09a";
 const abiPath = path.join(__dirname, "AlgoArena.json");
 const contractABI = JSON.parse(fs.readFileSync(abiPath, "utf8")).abi;
 
 const algoArenaContract = new ethers.Contract(contractAddress, contractABI, wallet);
+const leaderboardCachePath = path.join(__dirname, "temp", "leaderboard-cache.json");
+
+let battleHistory = [];
+try {
+  if (fs.existsSync(leaderboardCachePath)) {
+    battleHistory = JSON.parse(fs.readFileSync(leaderboardCachePath, "utf8"));
+  }
+} catch (error) {
+  console.warn("Could not load leaderboard cache:", error.message);
+  battleHistory = [];
+}
+
+const saveBattleHistory = () => {
+  fs.mkdirSync(path.dirname(leaderboardCachePath), { recursive: true });
+  fs.writeFileSync(leaderboardCachePath, JSON.stringify(battleHistory, null, 2));
+};
 
 // Endpoint to record a battle on the blockchain
 app.post("/record-battle", async (req, res) => {
@@ -251,6 +305,13 @@ app.post("/record-battle", async (req, res) => {
     // Call the function from your Solidity contract
     const tx = await algoArenaContract.recordBattle(winner, loser);
     await tx.wait(); // Wait for the block to be mined
+
+    battleHistory.unshift({
+      winner,
+      loser,
+      date: new Date().toLocaleString()
+    });
+    saveBattleHistory();
 
     console.log(`✅ Battle recorded! Transaction Hash: ${tx.hash}`);
     res.json({ success: true, transactionHash: tx.hash });
@@ -266,20 +327,7 @@ app.post("/record-battle", async (req, res) => {
    ========================================================= */
 app.get("/leaderboard", async (req, res) => {
   try {
-    // Search the blockchain for every 'BattleRecorded' event
-    const filter = algoArenaContract.filters.BattleRecorded();
-    const events = await algoArenaContract.queryFilter(filter);
-
-    // Format the raw blockchain data into clean JavaScript objects
-    const history = events.map(event => ({
-      winner: event.args[0],
-      loser: event.args[1],
-      // Solidity timestamps are in seconds, JS needs milliseconds
-      date: new Date(Number(event.args[2]) * 1000).toLocaleString() 
-    }));
-
-    // Reverse the array so the newest battles show up at the top
-    res.json({ success: true, leaderboard: history.reverse() });
+    res.json({ success: true, leaderboard: battleHistory });
 
   } catch (error) {
     console.error("Leaderboard Error:", error);

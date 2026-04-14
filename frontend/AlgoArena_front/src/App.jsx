@@ -30,16 +30,26 @@ function App() {
   const webcamRef = useRef(null);
 
   const [problems, setProblems] = useState([]);
-  const [selectedProblemId, setSelectedProblemId] = useState(1);
+  const [selectedProblemId, setSelectedProblemId] = useState("");
 
   // NEW: Web3 Authentication State
   const [userAddress, setUserAddress] = useState(null);
+  
+  // FIXED: Moved this inside the component!
+  const [currentProblemDetails, setCurrentProblemDetails] = useState(""); 
 
+  // 1. Fetch Initial Data
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
         const probRes = await axios.get(`${API_BASE_URL}/problems`);
-        if (probRes.data.success) setProblems(probRes.data.problems);
+        if (probRes.data.success) {
+          setProblems(probRes.data.problems);
+          // Auto-select the first problem if available
+          if (probRes.data.problems.length > 0) {
+            setSelectedProblemId(probRes.data.problems[0].id);
+          }
+        }
 
         const leadRes = await axios.get(`${API_BASE_URL}/leaderboard`);
         if (leadRes.data.success) setLeaderboard(leadRes.data.leaderboard);
@@ -50,6 +60,25 @@ function App() {
     fetchInitialData();
   }, []);
 
+  // 2. Fetch specific LeetCode problem details when selection changes
+  // FIXED: Moved this out into its own clean useEffect
+  useEffect(() => {
+    const fetchProblemDetails = async () => {
+      if (!selectedProblemId) return;
+      try {
+        setCurrentProblemDetails("<p>Loading LeetCode challenge...</p>");
+        const res = await axios.get(`${API_BASE_URL}/problem/${selectedProblemId}`);
+        if (res.data.success) {
+          setCurrentProblemDetails(res.data.descriptionHTML);
+        }
+      } catch (err) {
+        setCurrentProblemDetails("<p>Error loading problem.</p>");
+      }
+    };
+    fetchProblemDetails();
+  }, [selectedProblemId]);
+
+  // 3. Handle WebSockets
   useEffect(() => {
     socket.on("room_status", (data) => {
       setRoomCount(data.count);
@@ -75,7 +104,7 @@ function App() {
     };
   }, []);
 
-  /* --- NEW: WEB3 LOGIN FUNCTION --- */
+  /* --- WEB3 LOGIN FUNCTION --- */
   const connectWallet = async () => {
     if (!window.ethereum) {
       alert("⚠️ MetaMask is not installed! Please install it to log in.");
@@ -83,20 +112,15 @@ function App() {
     }
 
     try {
-      // 1. Request their wallet address
       const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
       const address = accounts[0];
-
-      // 2. Create a unique message for them to sign
       const message = `Welcome to AlgoArena!\n\nPlease sign this message to verify your identity.\n\nTimestamp: ${Date.now()}`;
 
-      // 3. Ask MetaMask to sign the message
       const signature = await window.ethereum.request({
         method: 'personal_sign',
         params: [message, address]
       });
 
-      // 4. Send it to the backend for cryptographic verification
       const res = await axios.post(`${API_BASE_URL}/verify-signature`, { address, signature, message });
 
       if (res.data.success) {
@@ -170,7 +194,6 @@ function App() {
           setTerminalOutput(`✅ Status: Accepted\nOutput:\n${res.data.output}\n\nMinting victory on Web3...`);
           if (roomId) socket.emit('claim_victory', { roomId, winnerId: socket.id });
           
-          // NEW: Use their Wallet Address as their Username on the blockchain!
           const winnerIdentity = userAddress ? `${userAddress.substring(0, 6)}...${userAddress.slice(-4)}` : `Anon-${socket.id.substring(0,4)}`;
           recordWinOnBlockchain(winnerIdentity, "Challenger");
           
@@ -232,22 +255,29 @@ function App() {
                   <span style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>Select Challenge:</span>
                   <select 
                     value={selectedProblemId} 
-                    onChange={(e) => setSelectedProblemId(Number(e.target.value))}
+                    onChange={(e) => setSelectedProblemId(e.target.value)}
                     style={{ padding: "8px", backgroundColor: "var(--bg-main)", color: "white", border: "1px solid var(--border-color)", borderRadius: "4px", outline: "none", cursor: "pointer", fontFamily: "inherit" }}
                   >
                     {problems.map(p => (
-                      <option key={p.id} value={p.id}>{p.id}. {p.title}</option>
+                      <option key={p.id} value={p.id}>{p.title}</option>
                     ))}
                   </select>
                 </div>
-                <h2 style={{marginTop: 0}}>{currentProblem.id}. {currentProblem.title}</h2>
+                <h2 style={{marginTop: 0}}>{currentProblem.title}</h2>
                 <div style={{ display: "flex", gap: "10px", marginBottom: "20px" }}>
                   <span style={{ color: currentProblem.difficulty === "Easy" ? "var(--success)" : currentProblem.difficulty === "Medium" ? "var(--warning)" : "var(--danger)", fontWeight: "600", fontSize: "0.9rem" }}>
                     {currentProblem.difficulty}
                   </span>
                   <span style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>Any Language</span>
                 </div>
-                <p style={{ lineHeight: "1.6", whiteSpace: "pre-wrap" }}>{currentProblem.description}</p>
+                
+                {/* NEW: Renders LeetCode's actual HTML description! */}
+                <div 
+                  className="leetcode-content"
+                  style={{ lineHeight: "1.6", overflowY: "auto", maxHeight: "50vh", paddingRight: "10px" }}
+                  dangerouslySetInnerHTML={{ __html: currentProblemDetails }}
+                />
+
               </div>
             )}
 

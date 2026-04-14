@@ -2,7 +2,7 @@
 FROM alpine:latest
 
 # Install the C++ compiler (g++)
-RUN apk add --no-cache g++
+RUN apk add --no-cache g++ python3 nodejs
 
 # Set the working directory where the code will be injected
 WORKDIR /home/student
