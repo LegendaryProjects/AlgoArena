@@ -1,38 +1,23 @@
 import hardhatToolboxViemPlugin from "@nomicfoundation/hardhat-toolbox-viem";
+import dotenv from "dotenv";
 import { configVariable, defineConfig } from "hardhat/config";
+
+dotenv.config();
+
+const envRpcUrl = process.env.ALCHEMY_SEPOLIA_URL;
+const envPrivateKey = process.env.PRIVATE_KEY
+  ? `0x${process.env.PRIVATE_KEY.replace(/^0x/, "")}`
+  : undefined;
 
 export default defineConfig({
   plugins: [hardhatToolboxViemPlugin],
-  solidity: {
-    profiles: {
-      default: {
-        version: "0.8.28",
-      },
-      production: {
-        version: "0.8.28",
-        settings: {
-          optimizer: {
-            enabled: true,
-            runs: 200,
-          },
-        },
-      },
-    },
-  },
+  solidity: "0.8.24",
   networks: {
-    hardhatMainnet: {
-      type: "edr-simulated",
-      chainType: "l1",
-    },
-    hardhatOp: {
-      type: "edr-simulated",
-      chainType: "op",
-    },
     sepolia: {
       type: "http",
       chainType: "l1",
-      url: configVariable("SEPOLIA_RPC_URL"),
-      accounts: [configVariable("SEPOLIA_PRIVATE_KEY")],
+      url: envRpcUrl ?? configVariable("SEPOLIA_RPC_URL"),
+      accounts: [envPrivateKey ?? configVariable("SEPOLIA_PRIVATE_KEY")],
     },
   },
 });

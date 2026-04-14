@@ -1,0 +1,40 @@
+{
+  "_format": "hh3-sol-build-info-1",
+  "id": "solc-0_8_24-3f1cebe43353bad49e251c3e9670cb0497707d5d",
+  "solcVersion": "0.8.24",
+  "solcLongVersion": "0.8.24+commit.e11b9ed9",
+  "compilerType": "solc",
+  "userSourceNameMap": {
+    "contracts/AlgoArena.sol": "project/contracts/AlgoArena.sol"
+  },
+  "input": {
+    "language": "Solidity",
+    "settings": {
+      "evmVersion": "shanghai",
+      "optimizer": {
+        "enabled": true,
+        "runs": 200
+      },
+      "outputSelection": {
+        "*": {
+          "": [
+            "ast"
+          ],
+          "*": [
+            "abi",
+            "evm.bytecode",
+            "evm.deployedBytecode",
+            "evm.methodIdentifiers",
+            "metadata"
+          ]
+        }
+      },
+      "remappings": []
+    },
+    "sources": {
+      "project/contracts/AlgoArena.sol": {
+        "content": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.24;\n\ncontract AlgoArena {\n    // This structure holds the details of a completed battle\n    struct Battle {\n        string winner;\n        string loser;\n        uint256 timestamp;\n    }\n\n    // An array to store all battles that have ever happened\n    Battle[] public battles;\n\n    // An event that gets broadcasted to the network whenever a battle is recorded\n    event BattleRecorded(string winner, string loser, uint256 timestamp);\n\n    // Function to save a new battle result to the blockchain\n    function recordBattle(string memory _winner, string memory _loser) public {\n        battles.push(Battle(_winner, _loser, block.timestamp));\n        \n        // Emit the event so our Node.js backend can listen for it\n        emit BattleRecorded(_winner, _loser, block.timestamp);\n    }\n\n    // Function to get the total number of battles played\n    function getTotalBattles() public view returns (uint256) {\n        return battles.length;\n    }\n}"
+      }
+    }
+  }
+}

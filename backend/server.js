@@ -11,7 +11,8 @@ import { fileURLToPath } from "url";
 import { ethers } from "ethers";
 
 const app = express();
-const PORT = 5000;
+const PREFERRED_PORT = Number(process.env.PORT) || 5001;
+const MAX_PORT_ATTEMPTS = 20;
 
 app.use(cors());
 // Increase payload size for webcam images
@@ -22,15 +23,16 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /* =========================================================
-   1. SOCKET.IO (REAL-TIME MULTIPLAYER SYNC)
+   1. SOCKET.IO (REAL-TIME MULTIPLAYER SYNC & REFREE)
    ========================================================= */
+  
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: {
-    origin: "http://localhost:5173", // Make sure this matches your Vite frontend port
-    methods: ["GET", "POST"]
-  }
+  cors: { origin: "http://localhost:5173", methods: ["GET", "POST"] }
 });
+
+const activeRooms = {};
+const roomTimers = {}; // Store the actual timer so we can stop it early!
 
 io.on('connection', (socket) => {
     console.log(`User Connected: ${socket.id}`);
@@ -38,10 +40,42 @@ io.on('connection', (socket) => {
     socket.on('join_room', (roomId) => {
         socket.join(roomId);
         console.log(`User ${socket.id} joined room: ${roomId}`);
+        
+        const roomSize = io.sockets.adapter.rooms.get(roomId).size;
+        io.to(roomId).emit('room_status', { count: roomSize });
+
+        // Start Match
+        if (roomSize === 2 && !activeRooms[roomId]) {
+            activeRooms[roomId] = true;
+            io.to(roomId).emit('battle_start', { message: "Match Found! Battle starting..." });
+            
+            let timeLeft = 900; 
+            
+            roomTimers[roomId] = setInterval(() => {
+                if (timeLeft <= 0) {
+                    clearInterval(roomTimers[roomId]);
+                    io.to(roomId).emit('battle_over', { message: "Time is up! Draw." });
+                    delete activeRooms[roomId];
+                } else {
+                    io.to(roomId).emit('timer_update', { timeLeft });
+                    timeLeft--;
+                }
+            }, 1000);
+        }
     });
 
     socket.on('code_change', ({ roomId, code }) => {
         socket.to(roomId).emit('receive_code', code);
+    });
+
+    // NEW: Listen for the Knockout Blow!
+    socket.on('claim_victory', ({ roomId, winnerId }) => {
+        if (roomTimers[roomId]) {
+            clearInterval(roomTimers[roomId]); // Stop the clock!
+            delete activeRooms[roomId];
+        }
+        // Tell everyone in the room who won
+        io.to(roomId).emit('match_over', { winnerId });
     });
 
     socket.on('disconnect', () => {
@@ -90,26 +124,46 @@ app.get("/problems", (req, res) => {
 });
 
 // ENDPOINT: Run code and check against the specific problem ID
+// UPGRADED ENDPOINT: Run code dynamically based on Language
 app.post("/run-code", async (req, res) => {
-  const { code, problemId } = req.body;
+  // We now expect a 'language' parameter from the frontend!
+  const { code, problemId, language } = req.body;
   
-  // Find the problem the user is trying to solve
   const currentProblem = problems.find(p => p.id === problemId);
   if (!currentProblem) {
     return res.status(400).json({ success: false, error: "Problem not found" });
   }
 
-  const fileName = `solution_${Date.now()}.cpp`;
-  const tempDir = path.join(__dirname, "temp");
+  // 1. Determine file extension and execution command based on language
+  let fileExtension = "";
+  let compileAndRunCommand = "";
+
+  if (language === "cpp") {
+    fileExtension = "cpp";
+    compileAndRunCommand = `g++ solution.cpp -o out && ./out`;
+  } else if (language === "python") {
+    fileExtension = "py";
+    compileAndRunCommand = `python3 solution.py`;
+  } else if (language === "javascript") {
+    fileExtension = "js";
+    compileAndRunCommand = `node solution.js`;
+  } else {
+    return res.status(400).json({ success: false, error: "Unsupported language" });
+  }
+
+  const fileName = `solution.${fileExtension}`;
+  const tempDir = path.join(__dirname, "temp", `run_${Date.now()}`); // Unique folder per run
   const filePath = path.join(tempDir, fileName);
 
   try {
-    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
+    // Create an isolated folder for this specific execution
+    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
     fs.writeFileSync(filePath, code);
 
+    // 2. Pass the dynamic command to Docker
     const dockerArgs = [
       "run", "--rm", "--network", "none", "--memory", "128m", "--cpus", "0.5",
-      "-v", `${tempDir}:/home/student`, "algo-sandbox", "sh", "-c", `g++ ${fileName} -o out && ./out`
+      "-v", `${tempDir}:/home/student`, "algo-sandbox", "sh", "-c", compileAndRunCommand
     ];
 
     const child = spawn("docker", dockerArgs);
@@ -120,23 +174,18 @@ app.post("/run-code", async (req, res) => {
     child.stderr.on("data", (data) => errorOutput += data.toString());
 
     child.on("close", (exitCode) => {
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      // Clean up the temporary folder after execution
+      fs.rmSync(tempDir, { recursive: true, force: true });
       
       if (exitCode === 0) {
-        // Clean up formatting to ignore trailing spaces/newlines
         const cleanOutput = output.trim().replace(/\r\n/g, '\n');
         const expectedClean = currentProblem.expectedOutput.trim().replace(/\r\n/g, '\n');
         
         const passed = cleanOutput === expectedClean;
 
-        res.json({ 
-          success: true, 
-          output: cleanOutput,
-          passed: passed,
-          expected: expectedClean
-        });
+        res.json({ success: true, output: cleanOutput, passed: passed, expected: expectedClean });
       } else {
-        res.json({ success: false, output: errorOutput || "Compilation Failed" });
+        res.json({ success: false, output: errorOutput || "Execution Failed" });
       }
     });
   } catch (error) {
@@ -239,8 +288,48 @@ app.get("/leaderboard", async (req, res) => {
 });
 
 /* =========================================================
+   6. WEB3 AUTHENTICATION (METAMASK LOGIN)
+   ========================================================= */
+app.post("/verify-signature", (req, res) => {
+  const { address, signature, message } = req.body;
+
+  try {
+    const recoveredAddress = ethers.verifyMessage(message, signature);
+
+    if (recoveredAddress.toLowerCase() !== address.toLowerCase()) {
+      return res.status(401).json({ success: false, error: "Signature mismatch" });
+    }
+
+    res.json({ success: true, user: address });
+  } catch (error) {
+    console.error("Auth Error:", error);
+    res.status(500).json({ success: false, error: "Server error during verification" });
+  }
+});
+
+/* =========================================================
    START SERVER
    ========================================================= */
-server.listen(PORT, () => {
-  console.log(`✅ AlgoArena Master Server running perfectly on port ${PORT}`);
-});
+function startServer(port, attemptsLeft) {
+  server.once("error", (error) => {
+    if (error.code === "EADDRINUSE" && attemptsLeft > 0) {
+      const nextPort = port + 1;
+      console.warn(`Port ${port} is busy. Retrying on port ${nextPort}...`);
+      startServer(nextPort, attemptsLeft - 1);
+      return;
+    }
+
+    if (error.code === "EADDRINUSE") {
+      console.error(`No free port found after ${MAX_PORT_ATTEMPTS + 1} attempts.`);
+      process.exit(1);
+    }
+
+    throw error;
+  });
+
+  server.listen(port, () => {
+    console.log(`AlgoArena Master Server running perfectly on port ${port}`);
+  });
+}
+
+startServer(PREFERRED_PORT, MAX_PORT_ATTEMPTS);
