@@ -259,6 +259,32 @@ app.post("/proctor-check", async (req, res) => {
 });
 
 /* =========================================================
+   3b. PYTHON ML BRIDGE (PLAGIARISM DETECTION)
+   ========================================================= */
+app.post("/check-plagiarism", async (req, res) => {
+  const { code1, code2 } = req.body;
+
+  try {
+    // Send the two code snippets to the Python FastAPI microservice
+    const mlResponse = await axios.post("http://localhost:8000/check-plagiarism", {
+      code1: code1,
+      code2: code2
+    });
+
+    res.json({
+      success: true,
+      similarity_score: mlResponse.data.similarity_score,
+      is_suspect: mlResponse.data.is_suspect
+    });
+  } catch (error) {
+    console.error("ML Plagiarism Service Error:", error.message);
+    res.status(500).json({ success: false, error: "Failed to connect to ML Plagiarism service" });
+  }
+});
+
+
+
+/* =========================================================
    4. WEB3 & BLOCKCHAIN SETUP (HARDHAT)
    ========================================================= */
 // Connect to Sepolia by default, or fall back to a local Hardhat node if one is running.
