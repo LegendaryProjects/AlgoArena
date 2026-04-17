@@ -44,25 +44,27 @@ export default function ProctoringCam({ inBattle }) {
   }, [inBattle, captureAndVerify]);
 
   return (
-    <div className="proctoring-wrapper" style={{ 
-        border: isVerified ? '2px solid #28a745' : '2px solid #dc3545', 
-        padding: '10px', 
-        borderRadius: '8px', 
-        backgroundColor: '#111',
-        maxWidth: '350px'
-    }}>
-      <h3 style={{ color: isVerified ? '#28a745' : '#dc3545', marginTop: 0, textAlign: 'center', fontSize: '1.2rem' }}>
-        {isVerified ? "🛡️ Identity Verified" : "⚠️ UNRECOGNIZED FACE!"}
-      </h3>
-      
-      <Webcam
-        audio={false}
-        ref={webcamRef}
-        screenshotFormat="image/jpeg"
-        width={320}
-        height={240}
-        style={{ borderRadius: '4px' }}
-      />
+    <div className="proctoring-wrapper" style={{ borderColor: isVerified ? 'rgba(57, 255, 20, 0.28)' : 'rgba(255, 115, 81, 0.35)' }}>
+      <div className="proctoring-header">
+        <div>
+          <span className="badge badge--green">PROCTOR CAM</span>
+          <h3 className="proctoring-title">{isVerified ? 'Identity Verified' : 'Unrecognized Face'}</h3>
+        </div>
+      </div>
+
+      <div className="proctoring-status" style={{ color: isVerified ? '#39ff14' : '#ff7351' }}>
+        {isVerified ? '🛡 Secure' : '⚠ Attention Required'}
+      </div>
+
+      <div className="proctoring-frame">
+        <Webcam
+          audio={false}
+          ref={webcamRef}
+          screenshotFormat="image/jpeg"
+          mirrored
+          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+        />
+      </div>
     </div>
   );
 }

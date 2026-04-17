@@ -23,52 +23,23 @@ export default function BattleResult({ winnerId, walletAddress, role, resetArena
   };
 
   return (
-    <div style={{
-      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-      backgroundColor: 'rgba(0, 0, 0, 0.85)',
-      display: 'flex', justifyContent: 'center', alignItems: 'center',
-      zIndex: 1000
-    }}>
-      <div style={{
-        backgroundColor: '#111',
-        border: `3px solid ${getBannerColor()}`,
-        borderRadius: '12px',
-        padding: '40px',
-        maxWidth: '500px',
-        textAlign: 'center',
-        color: '#fff',
-        boxShadow: `0 0 30px ${getBannerColor()}88`
-      }}>
-        <h1 style={{ color: getBannerColor(), marginBottom: '10px' }}>{getTitle()}</h1>
-        <hr style={{ borderColor: '#333', marginBottom: '20px' }} />
-        
-        <p style={{ fontSize: '1.2rem', lineHeight: '1.6', marginBottom: '30px' }}>
-          {getMessage()}
-        </p>
+    <div className="battle-result-overlay">
+      <div className="battle-result-card" style={{ borderColor: getBannerColor(), boxShadow: `0 0 30px ${getBannerColor()}66` }}>
+        <span className="badge" style={{ color: getBannerColor(), background: `${getBannerColor()}18`, borderColor: `${getBannerColor()}44` }}>
+          Match Complete
+        </span>
+        <h1 className="battle-result-title" style={{ color: getBannerColor() }}>{getTitle()}</h1>
+        <p className="battle-result-message">{getMessage()}</p>
 
-        <div style={{ backgroundColor: '#222', padding: '15px', borderRadius: '8px', marginBottom: '30px', fontFamily: 'monospace' }}>
-          <span style={{ color: '#888' }}>Official Winner Address:</span><br/>
-          <span style={{ color: '#61dafb', fontSize: '1.1rem' }}>{winnerId}</span>
+        <div className="battle-result-address">
+          <div className="leaderboard-row__meta">Official Winner Address</div>
+          <div style={{ color: '#39ff14', marginTop: '6px', wordBreak: 'break-word' }}>{winnerId}</div>
         </div>
 
-        <button 
-          onClick={resetArena}
-          style={{
-            backgroundColor: getBannerColor(),
-            color: '#fff',
-            border: 'none',
-            padding: '12px 24px',
-            fontSize: '1.1rem',
-            borderRadius: '6px',
-            cursor: 'pointer',
-            fontWeight: 'bold',
-            transition: 'transform 0.2s'
-          }}
-          onMouseOver={(e) => e.target.style.transform = 'scale(1.05)'}
-          onMouseOut={(e) => e.target.style.transform = 'scale(1)'}
-        >
-          Return to Lobby
-        </button>
+        <div className="battle-result-actions">
+          <button className="btn btn--primary" onClick={resetArena}>RETURN TO LOBBY</button>
+          <button className="btn btn--outline" onClick={resetArena}>PLAY AGAIN</button>
+        </div>
       </div>
     </div>
   );

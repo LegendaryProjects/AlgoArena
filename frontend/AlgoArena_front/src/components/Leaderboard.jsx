@@ -27,45 +27,38 @@ export default function Leaderboard() {
   }, []);
 
   return (
-    <div className="leaderboard-container" style={{
-        backgroundColor: '#111',
-        padding: '20px',
-        borderRadius: '8px',
-        border: '1px solid #444',
-        marginTop: '20px',
-        color: '#fff'
-    }}>
-      <h3 style={{ color: '#f39c12', borderBottom: '1px solid #333', paddingBottom: '10px' }}>
-        🏆 Blockchain Battle History
-      </h3>
-      
+    <div className="leaderboard-container">
+      <div className="leaderboard-header">
+        <div>
+          <span className="badge badge--amber">Blockchain Ranking</span>
+          <h3 className="leaderboard-title">Battle History</h3>
+        </div>
+      </div>
+
       {loading ? (
-        <p>Syncing with Sepolia Network...</p>
+        <p className="problem-content">Syncing with Sepolia Network...</p>
       ) : history.length === 0 ? (
-        <p>No battles recorded on the blockchain yet.</p>
+        <p className="problem-content">No battles recorded on the blockchain yet.</p>
       ) : (
-        <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ color: '#aaa', borderBottom: '1px solid #333' }}>
-              <th style={{ padding: '10px 0' }}>Date</th>
-              <th>Winner (Address)</th>
-              <th>Loser (Address)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {history.map((match, index) => (
-              <tr key={index} style={{ borderBottom: '1px solid #222' }}>
-                <td style={{ padding: '10px 0', fontSize: '0.9rem', color: '#888' }}>{match.date}</td>
-                <td style={{ color: '#28a745', fontFamily: 'monospace' }}>
-                  👑 {match.winner.slice(0, 6)}...{match.winner.slice(-4)}
-                </td>
-                <td style={{ color: '#dc3545', fontFamily: 'monospace' }}>
-                  💀 {match.loser.slice(0, 6)}...{match.loser.slice(-4)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="leaderboard-list">
+          {history.map((match, index) => (
+            <div key={index} className="leaderboard-row">
+              <div className="leaderboard-row__meta">{match.date}</div>
+              <div className="leaderboard-row__player">
+                <strong>👑 {match.winner.slice(0, 6)}...{match.winner.slice(-4)}</strong>
+                <span>Winner</span>
+              </div>
+              <div className="leaderboard-row__player">
+                <strong>💀 {match.loser.slice(0, 6)}...{match.loser.slice(-4)}</strong>
+                <span>Loser</span>
+              </div>
+              <div className="leaderboard-row__rating">{index + 1}</div>
+              <div className="leaderboard-row__chain">
+                <span className="badge badge--violet">ON-CHAIN</span>
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );

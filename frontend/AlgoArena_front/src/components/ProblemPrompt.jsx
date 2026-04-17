@@ -1,39 +1,69 @@
-import React from 'react';
+import { useState, useEffect } from 'react';
+import axios from 'axios';
 
-export default function ProblemPrompt() {
-  // For the MVP, we are statically displaying Problem 1 to match the ArenaEditor
-  const problem = {
-    title: "The Arena Gateway",
-    difficulty: "Easy",
-    description: "Welcome to your first trial. Write a C++ program that outputs exactly:\n\nAlgoArena 2026",
-  };
+export default function ProblemPrompt({ slug }) {
+  const [problemData, setProblemData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!slug) {
+      setProblemData(null);
+      setLoading(false);
+      return;
+    }
+
+    const fetchProblem = async () => {
+      setLoading(true);
+      try {
+        // Hit our Node.js backend which proxies the ALFA API
+        const response = await axios.get(`http://localhost:5001/problem/${slug}`);
+        if (response.data.success) {
+          setProblemData({
+            title: slug.replace(/-/g, ' ').toUpperCase(),
+            html: response.data.descriptionHTML,
+            tags: response.data.topicTags
+          });
+        }
+      } catch (error) {
+        console.error("Failed to fetch LeetCode problem:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProblem();
+  }, [slug]);
+
+  if (loading) {
+    return <div className="problem-container">Loading arena prompt...</div>;
+  }
 
   return (
-    <div className="problem-container" style={{ 
-        backgroundColor: '#1e1e1e', 
-        padding: '20px', 
-        borderRadius: '8px',
-        border: '1px solid #333',
-        marginBottom: '20px',
-        color: '#fff',
-        textAlign: 'left'
-    }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h2 style={{ margin: 0, color: '#61dafb' }}>⚔️ Task: {problem.title}</h2>
-        <span style={{ 
-            backgroundColor: '#28a745', 
-            padding: '5px 10px', 
-            borderRadius: '12px', 
-            fontSize: '0.8rem',
-            fontWeight: 'bold'
-        }}>
-          {problem.difficulty}
-        </span>
-      </div>
-      <hr style={{ borderColor: '#333', margin: '15px 0' }} />
-      <p style={{ whiteSpace: 'pre-wrap', fontSize: '1.1rem', lineHeight: '1.5' }}>
-        {problem.description}
-      </p>
+    <div className="problem-container">
+      {!problemData ? (
+        <div className="problem-content">Awaiting battle assignment.</div>
+      ) : (
+        <>
+          <div className="problem-header">
+            <div>
+              <span className="badge badge--amber">Challenge</span>
+              <h3 className="problem-title">⚔ {problemData.title}</h3>
+            </div>
+          </div>
+
+          <div className="problem-tags">
+            {problemData.tags?.map((tag, i) => (
+              <span key={i} className="badge badge--violet">
+                {tag.name}
+              </span>
+            ))}
+          </div>
+
+          <div className="problem-content">
+            <div className="leetcode-content" dangerouslySetInnerHTML={{ __html: problemData.html }} />
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -20,30 +20,39 @@ export default function SpectatorView({ socket }) {
   const playerIds = Object.keys(playersData);
 
   return (
-    <div className="spectator-container" style={{ padding: '20px', backgroundColor: '#111', color: '#fff', borderRadius: '8px' }}>
-      <h2 style={{ textAlign: 'center', color: '#f39c12' }}>👁️ LIVE SPECTATOR MODE</h2>
-      <hr style={{ borderColor: '#333', marginBottom: '20px' }} />
+    <div className="spectator-container">
+      <div className="spectator-header">
+        <div>
+          <span className="badge badge--violet">Live View</span>
+          <h2 className="spectator-title">LIVE SPECTATOR MODE</h2>
+        </div>
+      </div>
 
       {playerIds.length === 0 ? (
-        <p style={{ textAlign: 'center', color: '#888' }}>Waiting for players to start typing...</p>
+        <p className="problem-content">Waiting for players to start typing...</p>
       ) : (
-        <div style={{ display: 'flex', gap: '20px' }}>
+        <div className="spectator-grid">
           {playerIds.map((id, index) => (
-            <div key={id} style={{ flex: 1, border: '1px solid #444', borderRadius: '8px', overflow: 'hidden' }}>
-              <div style={{ backgroundColor: '#222', padding: '10px', textAlign: 'center', fontWeight: 'bold' }}>
-                Player {index + 1}: <span style={{ color: '#61dafb', fontFamily: 'monospace' }}>{id.slice(0, 6)}...{id.slice(-4)}</span>
+            <div key={id} className="spectator-player">
+              <div className="spectator-player__header">
+                <span className="badge badge--green">Player {index + 1}</span>
+                <span className="code-status__chip">{id.slice(0, 6)}...{id.slice(-4)}</span>
               </div>
-              <Editor
-                height="60vh"
-                theme="vs-dark"
-                language="cpp" // Defaulting to C++ for syntax highlighting
-                value={playersData[id]}
-                options={{
-                  readOnly: true, // Crucial: Spectators cannot type!
-                  minimap: { enabled: false },
-                  scrollBeyondLastLine: false,
-                }}
-              />
+              <div className="spectator-player__body">
+                <Editor
+                  height="100%"
+                  theme="vs-dark"
+                  language="cpp"
+                  value={playersData[id]}
+                  options={{
+                    readOnly: true,
+                    minimap: { enabled: false },
+                    scrollBeyondLastLine: false,
+                    automaticLayout: true,
+                    fontFamily: 'JetBrains Mono, monospace',
+                  }}
+                />
+              </div>
             </div>
           ))}
         </div>

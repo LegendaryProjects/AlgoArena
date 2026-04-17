@@ -17,6 +17,16 @@ const MAX_PORT_ATTEMPTS = 20;
 const HOST = process.env.HOST || "0.0.0.0";
 const ML_SERVICE_URL = process.env.ML_SERVICE_URL || "http://127.0.0.1:8080";
 
+let leetcodeBank = [];
+
+// Fetch 50 LeetCode problems when the server boots
+axios.get("https://alfa-leetcode-api.onrender.com/problems?limit=50")
+  .then(res => {
+    leetcodeBank = res.data.problemsetQuestionList;
+    console.log(`✅ Loaded ${leetcodeBank.length} LeetCode problems from ALFA!`);
+  })
+  .catch(err => console.error("Failed to load ALFA problems:", err.message));
+
 app.use(cors({ origin: true, methods: ["GET", "POST"], credentials: true }));
 // Increase payload size for webcam images
 app.use(express.json({ limit: "10mb" }));
@@ -52,7 +62,16 @@ io.on('connection', (socket) => {
         // Start Match
         if (roomSize === 2 && !activeRooms[roomId]) {
             activeRooms[roomId] = true;
-            io.to(roomId).emit('battle_start', { message: "Match Found! Battle starting..." });
+
+            // NEW: Pick a random LeetCode problem for this battle!
+            const randomProblem = leetcodeBank.length > 0 
+                ? leetcodeBank[Math.floor(Math.random() * leetcodeBank.length)].titleSlug 
+                : "two-sum"; // Fallback if API fails
+
+            io.to(roomId).emit('battle_start', { 
+                message: "Match Found! Battle starting...",
+                problemSlug: randomProblem 
+            });
             
             let timeLeft = 900; 
             
@@ -90,6 +109,24 @@ io.on('connection', (socket) => {
 
     socket.on('disconnect', () => {
         console.log("User Disconnected", socket.id);
+        
+        // NEW: Scan all rooms and clean up "Ghost Rooms"
+        // If a room drops below 2 players, reset its active status and stop the timer
+        for (const roomId in activeRooms) {
+            const room = io.sockets.adapter.rooms.get(roomId);
+            if (!room || room.size < 2) {
+                console.log(`Room ${roomId} lost a player. Resetting arena...`);
+                delete activeRooms[roomId];
+                
+                if (roomTimers[roomId]) {
+                    clearInterval(roomTimers[roomId]);
+                    delete roomTimers[roomId];
+                }
+                
+                // Tell the remaining player the match was voided
+                io.to(roomId).emit('room_status', { count: room ? room.size : 0 });
+            }
+        }
     });
 });
 
@@ -205,7 +242,11 @@ app.post("/run-code", async (req, res) => {
     // 2. Pass the dynamic command to Docker
     const dockerArgs = [
       "run", "--rm", "--network", "none", "--memory", "128m", "--cpus", "0.5",
-      "-v", `${tempDir}:/home/student`, "algo-sandbox", "sh", "-c", compileAndRunCommand
+      "--user", "root", // FIX 1: Run as root to bypass Mac volume permission locks
+      "-v", `${tempDir}:/app`, // FIX 2: Mount your Mac's temp folder cleanly to /app
+      "-w", "/app", // FIX 3: Force Docker to execute the command inside /app
+      "algo-sandbox", 
+      "sh", "-c", compileAndRunCommand
     ];
 
     const child = spawn("docker", dockerArgs);
@@ -216,16 +257,18 @@ app.post("/run-code", async (req, res) => {
     child.stderr.on("data", (data) => errorOutput += data.toString());
 
     child.on("close", (exitCode) => {
-      // Clean up the temporary folder after execution
       fs.rmSync(tempDir, { recursive: true, force: true });
       
       if (exitCode === 0) {
         const cleanOutput = output.trim().replace(/\r\n/g, '\n');
-        const expectedClean = currentProblem.expectedOutput.trim().replace(/\r\n/g, '\n');
         
-        const passed = cleanOutput === expectedClean;
-
-        res.json({ success: true, output: cleanOutput, passed: passed, expected: expectedClean });
+        // MVP HACK: For dynamic ALFA problems, if the code compiles and runs successfully,
+        // we pass them to the Plagiarism/Victory checks!
+        res.json({ 
+            success: true, 
+            output: cleanOutput || "Execution Successful (No Console Output)", 
+            passed: true // Automatically passes them to the next phase
+        });
       } else {
         res.json({ success: false, output: errorOutput || "Execution Failed" });
       }
