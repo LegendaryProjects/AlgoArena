@@ -1,8 +1,21 @@
-# Use a super lightweight version of Linux
+# Use Alpine Linux for a lightning-fast, minimal footprint
 FROM alpine:latest
 
-# Install the C++ compiler (g++)
-RUN apk add --no-cache g++ python3 nodejs
+# Install the necessary compilers and runtimes for AlgoArena
+RUN apk update && apk add --no-cache \
+    g++ \
+    python3 \
+    nodejs
 
-# Set the working directory where the code will be injected
+# Create a non-root user for extreme security
+# If a player manages to break out of the script, they still have no permissions
+RUN adduser -D -g '' student
+
+# Set the working directory where the server.js will mount the code
 WORKDIR /home/student
+
+# Switch to the restricted user
+USER student
+
+# The container will sit idle until server.js passes a command to it
+CMD ["sh"]

@@ -22,3 +22,11 @@ venv/
 .venv/
 .ipynb_checkpoints/
 *.egg-info/
+
+# ML service runtime temp files
+ml-services/temp_ref_*
+ml-services/temp_curr_*
+
+# Python tooling caches
+.pytest_cache/
+.mypy_cache/

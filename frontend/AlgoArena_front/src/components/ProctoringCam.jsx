@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import Webcam from 'react-webcam';
 import axios from 'axios';
+import { BACKEND_URL } from '../config';
 
 export default function ProctoringCam({ inBattle }) {
   const webcamRef = useRef(null);
@@ -15,7 +16,7 @@ export default function ProctoringCam({ inBattle }) {
     if (!imageSrc) return;
 
     try {
-      const response = await axios.post("http://localhost:5001/proctor-check", {
+      const response = await axios.post(`${BACKEND_URL}/proctor-check`, {
         image: imageSrc
       });
 

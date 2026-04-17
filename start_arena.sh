@@ -2,6 +2,8 @@
 
 echo "⚔️ Starting AlgoArena Microservices..."
 
+LAN_IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo "localhost")
+
 # 1. Start the Python ML Service (Port 8000)
 echo "[1/3] Booting AI Anti-Cheat & Plagiarism Engine..."
 cd ml-services
@@ -14,21 +16,22 @@ cd ..
 echo "[2/3] Booting Socket.io & Docker Execution Engine..."
 cd backend
 # Ensure Docker daemon is running on your machine!
-node server.js &
+HOST=0.0.0.0 node server.js &
 BACKEND_PID=$!
 cd ..
 
 # 3. Start the React Frontend (Port 5173)
 echo "[3/3] Booting React Frontend..."
 cd frontend/AlgoArena_front
-npm run dev &
+npm run dev --host &
 FRONTEND_PID=$!
 cd ../..
 
 echo "✅ All systems operational!"
-echo "➡️  Frontend: http://localhost:5173"
-echo "➡️  Backend:  http://localhost:5001"
-echo "➡️  ML API:   http://localhost:8000/docs"
+echo "➡️  Frontend (this machine): http://localhost:5173"
+echo "➡️  Frontend (LAN):          http://$LAN_IP:5173"
+echo "➡️  Backend (LAN):           http://$LAN_IP:5001"
+echo "➡️  ML API (this machine):   http://localhost:8000/docs"
 echo ""
 echo "Press [CTRL+C] to gracefully shut down the Arena."
 

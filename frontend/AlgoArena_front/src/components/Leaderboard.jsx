@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import { BACKEND_URL } from '../config';
 
 export default function Leaderboard() {
   const [history, setHistory] = useState([]);
@@ -8,7 +9,7 @@ export default function Leaderboard() {
   useEffect(() => {
     const fetchLeaderboard = async () => {
       try {
-        const response = await axios.get("http://localhost:5001/leaderboard");
+        const response = await axios.get(`${BACKEND_URL}/leaderboard`);
         if (response.data.success) {
           setHistory(response.data.leaderboard);
         }

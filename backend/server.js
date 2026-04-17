@@ -14,8 +14,10 @@ import dotenv from "dotenv";
 const app = express();
 const PREFERRED_PORT = Number(process.env.PORT) || 5001;
 const MAX_PORT_ATTEMPTS = 20;
+const HOST = process.env.HOST || "0.0.0.0";
+const ML_SERVICE_URL = process.env.ML_SERVICE_URL || "http://127.0.0.1:8080";
 
-app.use(cors());
+app.use(cors({ origin: true, methods: ["GET", "POST"], credentials: true }));
 // Increase payload size for webcam images
 app.use(express.json({ limit: "10mb" }));
 
@@ -31,7 +33,7 @@ dotenv.config({ path: path.join(__dirname, "../blockchain/.env") });
   
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: "http://localhost:5173", methods: ["GET", "POST"] }
+  cors: { origin: true, methods: ["GET", "POST"], credentials: true }
 });
 
 const activeRooms = {};
@@ -67,8 +69,13 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('code_change', ({ roomId, code }) => {
+    // UPGRADED: Now accepts playerId to broadcast to spectators
+    socket.on('code_change', ({ roomId, code, playerId }) => {
+        // Send to the opponent (still needed for the Plagiarism Check)
         socket.to(roomId).emit('receive_code', code);
+        
+        // Broadcast to everyone in the room (specifically for Spectators)
+        io.to(roomId).emit('spectator_update', { playerId, code });
     });
 
     // NEW: Listen for the Knockout Blow!
@@ -243,9 +250,18 @@ app.post("/proctor-check", async (req, res) => {
     form.append("reference_img", imageBuffer, "ref.jpg");
     form.append("current_img", imageBuffer, "curr.jpg");
 
-    const mlResponse = await axios.post("http://localhost:8000/verify-face", form, {
+    const mlResponse = await axios.post(`${ML_SERVICE_URL}/verify-face`, form, {
       headers: { ...form.getHeaders() }
     });
+
+    if (mlResponse.data && mlResponse.data.success === false) {
+      return res.json({
+        success: false,
+        verified: true,
+        unavailable: true,
+        error: mlResponse.data.error || "Face verification unavailable"
+      });
+    }
 
     res.json({
       success: true,
@@ -254,7 +270,12 @@ app.post("/proctor-check", async (req, res) => {
     });
   } catch (error) {
     console.error("ML Service Error:", error.message);
-    res.status(500).json({ success: false, error: "Failed to connect to ML service" });
+    res.json({
+      success: false,
+      verified: true,
+      unavailable: true,
+      error: "Failed to connect to ML service"
+    });
   }
 });
 
@@ -266,7 +287,7 @@ app.post("/check-plagiarism", async (req, res) => {
 
   try {
     // Send the two code snippets to the Python FastAPI microservice
-    const mlResponse = await axios.post("http://localhost:8000/check-plagiarism", {
+    const mlResponse = await axios.post(`${ML_SERVICE_URL}/check-plagiarism`, {
       code1: code1,
       code2: code2
     });
@@ -401,8 +422,8 @@ function startServer(port, attemptsLeft) {
     throw error;
   });
 
-  server.listen(port, () => {
-    console.log(`AlgoArena Master Server running perfectly on port ${port}`);
+  server.listen(port, HOST, () => {
+    console.log(`AlgoArena Master Server running on http://${HOST}:${port}`);
   });
 }
 

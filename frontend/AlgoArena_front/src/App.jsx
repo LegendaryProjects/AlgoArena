@@ -6,19 +6,22 @@ import ArenaEditor from './components/ArenaEditor';
 import ProctoringCam from './components/ProctoringCam';
 import ProblemPrompt from './components/ProblemPrompt';
 import Leaderboard from './components/Leaderboard';
-const [opponentCode, setOpponentCode] = useState("");
-
-
+import SpectatorView from './components/SpectatorView';
+import BattleResult from './components/BattleResult';
+import { BACKEND_URL } from './config';
 
 // Connect to your Node.js backend
-const socket = io("http://localhost:5001");
+const socket = io(BACKEND_URL);
 
 function App() {
+  const [opponentCode, setOpponentCode] = useState("");
   const [walletAddress, setWalletAddress] = useState("");
   const [roomId, setRoomId] = useState("");
   const [inBattle, setInBattle] = useState(false);
   const [roomStatus, setRoomStatus] = useState("");
   const [timeLeft, setTimeLeft] = useState(900);
+  const [role, setRole] = useState(null); 
+  const [winner, setWinner] = useState(null);
 
   // --- 1. WEB3 METAMASK AUTHENTICATION ---
   const connectWallet = async () => {
@@ -53,7 +56,8 @@ function App() {
     });
 
     socket.on('match_over', (data) => {
-      alert(`Battle Over! Winner: ${data.winnerId}`);
+      // Instead of an alert, we set the winner state to trigger the overlay
+      setWinner(data.winnerId);
       setInBattle(false);
     });
 
@@ -70,22 +74,42 @@ function App() {
     };
   }, []);
 
-  const joinArena = () => {
-    if (!walletAddress) {
-      alert("Connect wallet first!");
-      return;
-    }
-    // Hardcoding a room for testing, but this should be dynamic later
-    const testRoom = "arena-room-1"; 
-    setRoomId(testRoom);
-    socket.emit('join_room', testRoom);
-  };
-
   // Format the seconds into MM:SS
   const formatTime = (seconds) => {
     const m = Math.floor(seconds / 60).toString().padStart(2, '0');
     const s = (seconds % 60).toString().padStart(2, '0');
     return `${m}:${s}`;
+  };
+
+  const joinAsSpectator = () => {
+    if (!walletAddress) {
+      alert("Connect wallet first!");
+      return;
+    }
+    const testRoom = "arena-room-1"; 
+    setRoomId(testRoom);
+    setRole('spectator');
+    socket.emit('join_room', testRoom);
+  };
+
+  const joinArena = () => {
+    if (!walletAddress) {
+      alert("Connect wallet first!");
+      return;
+    }
+    const testRoom = "arena-room-1"; 
+    setRoomId(testRoom);
+    setRole('player');
+    socket.emit('join_room', testRoom);
+  };
+
+  const resetArena = () => {
+    setWinner(null);
+    setRoomId("");
+    setRole(null);
+    setRoomStatus("");
+    setOpponentCode("");
+    setTimeLeft(900);
   };
 
   return (
@@ -100,37 +124,51 @@ function App() {
         <div className="dashboard">
           <p>Logged in as: <strong>{walletAddress.slice(0,6)}...{walletAddress.slice(-4)}</strong></p>
           
-          {!inBattle ? (
+          {/* LOBBY VIEW */}
+          {!inBattle && role !== 'spectator' ? (
             <div>
-              <button className="join-btn" onClick={joinArena}>Enter Matchmaking</button>
+              <div style={{ display: 'flex', gap: '15px', justifyContent: 'center', marginBottom: '20px' }}>
+                <button className="join-btn" onClick={joinArena} style={{ backgroundColor: '#dc3545' }}>
+                  ⚔️ Enter as Combatant
+                </button>
+                <button className="join-btn" onClick={joinAsSpectator} style={{ backgroundColor: '#17a2b8' }}>
+                  👁️ Watch as Spectator
+                </button>
+              </div>
               <p className="status-text">{roomStatus}</p>
-              
-              {/* Show the Web3 Leaderboard in the Lobby */}
               <Leaderboard />
+            </div>
+          ) : role === 'spectator' ? (
+            <div>
+              <p className="status-text">{roomStatus}</p>
+              <SpectatorView socket={socket} />
             </div>
           ) : (
             <div className="battle-zone">
               <h2>🔥 BATTLE COMMENCED 🔥</h2>
               <h3 className="timer">Time Remaining: {formatTime(timeLeft)}</h3>
               
-              {/* Show the Problem Prompt above the Editor */}
               <ProblemPrompt />
               
               <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
                 <div style={{ flex: 1 }}>
-                  <ArenaEditor 
-                      socket={socket} 
-                      roomId={roomId} 
-                      walletAddress={walletAddress} 
-                      opponentCode={opponentCode} 
-                  />
+                  <ArenaEditor socket={socket} roomId={roomId} walletAddress={walletAddress} opponentCode={opponentCode} />
                 </div>
                 <ProctoringCam inBattle={inBattle} />
               </div>
-
             </div>
           )}
         </div>
+      )}
+
+      {/* THE VICTORY OVERLAY */}
+      {winner && (
+        <BattleResult 
+          winnerId={winner} 
+          walletAddress={walletAddress} 
+          role={role} 
+          resetArena={resetArena} 
+        />
       )}
     </div>
   );

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import Editor from '@monaco-editor/react';
 import axios from 'axios';
+import { BACKEND_URL } from '../config';
 
 export default function ArenaEditor({ socket, roomId, walletAddress, opponentCode}) {
   // Defaulting to C++ as the primary arena language
@@ -14,8 +15,12 @@ export default function ArenaEditor({ socket, roomId, walletAddress, opponentCod
 
   const handleEditorChange = (value) => {
     setCode(value);
-    // Real-time sync: Sends your code to the opponent/spectators
-    socket.emit("code_change", { roomId, code: value });
+    // Real-time sync: Sends your code and your Web3 address to the server
+    socket.emit("code_change", { 
+        roomId, 
+        code: value, 
+        playerId: walletAddress 
+    });
   };
 
   const executeCode = async () => {
@@ -24,7 +29,7 @@ export default function ArenaEditor({ socket, roomId, walletAddress, opponentCod
     
     try {
       // 1. Run the code in Docker
-      const response = await axios.post("http://localhost:5001/run-code", {
+      const response = await axios.post(`${BACKEND_URL}/run-code`, {
         code,
         problemId,
         language
@@ -40,7 +45,7 @@ export default function ArenaEditor({ socket, roomId, walletAddress, opponentCod
           // 2. THE ANTI-CHEAT GATE: Check for Plagiarism
           // Only check if the opponent has actually written something
           if (opponentCode && opponentCode.length > 20) {
-              const plagResponse = await axios.post("http://localhost:5001/check-plagiarism", {
+                const plagResponse = await axios.post(`${BACKEND_URL}/check-plagiarism`, {
                   code1: code,
                   code2: opponentCode
               });
@@ -57,7 +62,7 @@ export default function ArenaEditor({ socket, roomId, walletAddress, opponentCod
           setOutput(resultText + "🏆 CLEARED ANTI-CHEAT! Claiming Victory on the Blockchain...");
           socket.emit("claim_victory", { roomId, winnerId: walletAddress });
           
-          await axios.post("http://localhost:5001/record-battle", { 
+          await axios.post(`${BACKEND_URL}/record-battle`, { 
             winner: walletAddress, 
             loser: "Opponent_Defeated" 
           });
