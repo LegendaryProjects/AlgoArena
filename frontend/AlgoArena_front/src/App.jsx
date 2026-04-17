@@ -23,7 +23,11 @@ const createRoomCode = () => Math.random().toString(36).slice(2, 8).toUpperCase(
 
 function App() {
   const [walletAddress, setWalletAddress] = useState('');
-  const [roomId, setRoomId] = useState('arena-room-1');
+  
+  // NEW: Automatically generate a room code for the host, but allow them to type a different one!
+  const [roomCode] = useState(createRoomCode);
+  const [roomId, setRoomId] = useState(roomCode);
+  
   const [roomStatus, setRoomStatus] = useState('Ready to connect.');
   const [opponentCode, setOpponentCode] = useState('');
   const [inBattle, setInBattle] = useState(false);
@@ -32,13 +36,10 @@ function App() {
   const [timeLeft, setTimeLeft] = useState(900);
   const [problemSlug, setProblemSlug] = useState('');
   const [view, setView] = useState('arena');
-  const [roomCode] = useState(createRoomCode);
   const [problems, setProblems] = useState([]);
 
   const shortWallet = useMemo(() => {
-    if (!walletAddress) {
-      return 'Disconnected';
-    }
+    if (!walletAddress) return 'Disconnected';
     return `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`;
   }, [walletAddress]);
 
@@ -47,7 +48,6 @@ function App() {
       alert('Please install MetaMask to play AlgoArena!');
       return;
     }
-
     try {
       const provider = new ethers.BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
@@ -60,29 +60,19 @@ function App() {
   };
 
   useEffect(() => {
-    socket.on('room_status', (data) => {
-      setRoomStatus(`Players in room: ${data.count}/2`);
-    });
-
+    socket.on('room_status', (data) => setRoomStatus(`Players in room: ${data.count}/2`));
     socket.on('battle_start', (data) => {
       setRoomStatus(data.message);
       setProblemSlug(data.problemSlug);
       setInBattle(true);
       setView('battle');
     });
-
-    socket.on('timer_update', (data) => {
-      setTimeLeft(data.timeLeft);
-    });
-
+    socket.on('timer_update', (data) => setTimeLeft(data.timeLeft));
     socket.on('match_over', (data) => {
       setWinner(data.winnerId);
       setInBattle(false);
     });
-
-    socket.on('receive_code', (incomingCode) => {
-      setOpponentCode(incomingCode);
-    });
+    socket.on('receive_code', (incomingCode) => setOpponentCode(incomingCode));
 
     return () => {
       socket.off('room_status');
@@ -103,31 +93,27 @@ function App() {
     fetchProblems();
   }, []);
 
+  // UPDATED: Dynamic Room Joining logic
   const joinArena = () => {
-    if (!walletAddress) {
-      alert('Connect wallet first!');
-      return;
-    }
-    setRoomId('arena-room-1');
+    if (!walletAddress) { alert('Connect wallet first!'); return; }
+    if (!roomId.trim()) { alert('Please enter a Room Code!'); return; }
+    
     setRole('player');
     setView('battle');
-    socket.emit('join_room', 'arena-room-1');
+    socket.emit('join_room', roomId);
   };
 
   const joinAsSpectator = () => {
-    if (!walletAddress) {
-      alert('Connect wallet first!');
-      return;
-    }
-    setRoomId('arena-room-1');
+    if (!walletAddress) { alert('Connect wallet first!'); return; }
+    if (!roomId.trim()) { alert('Please enter a Room Code!'); return; }
+    
     setRole('spectator');
     setView('spectator');
-    socket.emit('join_room', 'arena-room-1');
+    socket.emit('join_room', roomId);
   };
 
   const resetArena = () => {
     setWinner(null);
-    setRoomId('arena-room-1');
     setRole(null);
     setRoomStatus('Ready to connect.');
     setOpponentCode('');
@@ -152,40 +138,21 @@ function App() {
               1v1 real-time duels with AI proctoring, blockchain-verified results, and live multiplayer sync.
               Host a room, challenge friends, or spectate the arena.
             </p>
-            <div className="hero-actions">
+            
+            {/* UNCONNECTED VIEW INPUTS */}
+            <div className="hero-actions" style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
               <button className="btn btn--primary" onClick={connectWallet}>CONNECT WALLET</button>
+              
+              <input 
+                type="text" 
+                value={roomId} 
+                onChange={(e) => setRoomId(e.target.value.toUpperCase())} 
+                placeholder="Enter Room Code"
+                style={{ padding: '10px', borderRadius: '4px', border: '1px solid var(--border-color)', backgroundColor: '#111', color: 'white', outline: 'none', maxWidth: '160px', fontFamily: 'monospace' }}
+              />
               <button className="btn btn--outline" onClick={joinArena}>ENTER ARENA</button>
               <button className="btn btn--violet" onClick={joinAsSpectator}>WATCH LIVE</button>
             </div>
-          </div>
-
-          <div className="hero-grid">
-            <article className="feature-card feature-card--green" onClick={joinArena}>
-              <div className="feature-card__top">
-                <span className="feature-badge">HOST MODE</span>
-                <span className="feature-icon">⚔</span>
-              </div>
-              <h2>Create a Battle Room</h2>
-              <p>Generate a room, start the duel, and keep the full proctoring workflow visible.</p>
-              <div className="feature-meta">Room: {roomCode}</div>
-            </article>
-
-            <article className="feature-card feature-card--violet" onClick={joinAsSpectator}>
-              <div className="feature-card__top">
-                <span className="feature-badge feature-badge--violet">COMPETE MODE</span>
-                <span className="feature-icon">👁</span>
-              </div>
-              <h2>Join or Challenge</h2>
-              <p>Enter a room, challenge a friend, or watch live code evolve in real time.</p>
-              <div className="feature-meta">Live proctoring enabled</div>
-            </article>
-          </div>
-
-          <div className="stats-strip">
-            <div><strong>&lt;200ms</strong><span>Sync Latency</span></div>
-            <div><strong>100%</strong><span>Proctored</span></div>
-            <div><strong>94.2%</strong><span>Face Verify</span></div>
-            <div><strong>12,847</strong><span>Coders</span></div>
           </div>
         </section>
       );
@@ -195,48 +162,7 @@ function App() {
       return (
         <main className="arena-page">
           <section className="panel-shell panel-shell--wide">
-            <div className="panel-shell__header">
-              <div>
-                <span className="badge badge--amber">RANKING</span>
-                <h2 className="section-title">Leaderboard</h2>
-              </div>
-              <div className="status-chip">{shortWallet}</div>
-            </div>
             <Leaderboard />
-          </section>
-        </main>
-      );
-    }
-
-    if (view === 'profile' && !inBattle) {
-      return (
-        <main className="arena-page">
-          <section className="panel-shell panel-shell--wide">
-            <div className="panel-shell__header">
-              <div>
-                <span className="badge badge--violet">PROFILE</span>
-                <h2 className="section-title">Operator Profile</h2>
-              </div>
-              <div className="status-chip">{shortWallet}</div>
-            </div>
-            <div className="profile-card">
-              <div className="profile-card__row">
-                <span>Wallet</span>
-                <strong>{shortWallet}</strong>
-              </div>
-              <div className="profile-card__row">
-                <span>Room</span>
-                <strong>{roomId}</strong>
-              </div>
-              <div className="profile-card__row">
-                <span>Match State</span>
-                <strong>{inBattle ? 'In Battle' : 'Lobby'}</strong>
-              </div>
-              <div className="profile-card__row">
-                <span>Room Code</span>
-                <strong>{roomCode}</strong>
-              </div>
-            </div>
           </section>
         </main>
       );
@@ -249,7 +175,7 @@ function App() {
             <div className="panel-shell__header">
               <div>
                 <span className="badge badge--violet">SPECTATOR MODE</span>
-                <h2 className="section-title">LIVE VIEWERSHIP</h2>
+                <h2 className="section-title">LIVE VIEWERSHIP: ROOM {roomId}</h2>
               </div>
               <div className="status-chip">{roomStatus}</div>
             </div>
@@ -265,7 +191,6 @@ function App() {
           <div className="battle-statusbar">
             <div className="battle-statusbar__left">
               <span className="status-pill status-pill--green">PROCTORING ACTIVE</span>
-              <span className="status-text">DeepFace + plagiarism checks are live</span>
             </div>
             <div className="battle-statusbar__right">
               <span className="status-pill status-pill--danger">{roomId}</span>
@@ -276,44 +201,15 @@ function App() {
           <div className="battle-grid">
             <section className="battle-column battle-column--problem">
               <div className="panel-shell panel-shell--compact">
-                <div className="panel-shell__header">
-                  <div>
-                    <span className="badge badge--green">TASK</span>
-                    <h2 className="section-title">Battle Prompt</h2>
-                  </div>
-                </div>
                 <ProblemPrompt slug={problemSlug} />
               </div>
             </section>
-
             <section className="battle-column battle-column--editor">
-              <ArenaEditor 
-                socket={socket} 
-                roomId={roomId} 
-                walletAddress={walletAddress} 
-                opponentCode={opponentCode} 
-                problemSlug={problemSlug} 
-              />
+              <ArenaEditor socket={socket} roomId={roomId} walletAddress={walletAddress} opponentCode={opponentCode} problemSlug={problemSlug} />
             </section>
-
             <aside className="battle-column battle-column--side">
-              <div className="panel-shell panel-shell--compact panel-shell--stack">
-                <div>
-                  <span className="badge badge--violet">NODE_01</span>
-                  <h2 className="section-title">Identity Check</h2>
-                </div>
-                <ProctoringCam inBattle={inBattle} />
-              </div>
-
-              <div className="panel-shell panel-shell--compact">
-                <div className="panel-shell__header">
-                  <div>
-                    <span className="badge badge--amber">LEADERBOARD</span>
-                    <h2 className="section-title">Blockchain History</h2>
-                  </div>
-                </div>
-                <Leaderboard />
-              </div>
+              <ProctoringCam inBattle={inBattle} />
+              <Leaderboard />
             </aside>
           </div>
         </main>
@@ -335,18 +231,21 @@ function App() {
             <div className="lobby-hero">
               <h1 className="lobby-hero__title">BLOCKCHAIN VERIFIED CODING BATTLES</h1>
               <p className="lobby-hero__copy">
-                Challenge a friend, enter as a competitor, or spectate the duel from a clean neon control room.
+                Challenge a friend, enter as a competitor, or spectate the duel.
               </p>
-              <div className="hero-actions hero-actions--left">
-                <button className="btn btn--primary" onClick={joinArena}>ENTER AS COMBATANT</button>
-                <button className="btn btn--outline" onClick={joinAsSpectator}>WATCH AS SPECTATOR</button>
+              
+              {/* CONNECTED VIEW INPUTS */}
+              <div className="hero-actions hero-actions--left" style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginTop: '20px' }}>
+                <input 
+                  type="text" 
+                  value={roomId} 
+                  onChange={(e) => setRoomId(e.target.value.toUpperCase())} 
+                  placeholder="Enter Room Code"
+                  style={{ padding: '12px', borderRadius: '4px', border: '1px solid var(--border-color)', backgroundColor: '#111', color: 'white', outline: 'none', minWidth: '200px', fontSize: '1.1rem', fontFamily: 'monospace' }}
+                />
+                <button className="btn btn--primary" onClick={joinArena}>ENTER BATTLE</button>
+                <button className="btn btn--outline" onClick={joinAsSpectator}>SPECTATE</button>
               </div>
-            </div>
-
-            <div className="metrics-grid">
-              <div className="metric-card"><strong>{formatTime(timeLeft)}</strong><span>Timer Sync</span></div>
-              <div className="metric-card"><strong>{roomStatus}</strong><span>Room Status</span></div>
-              <div className="metric-card"><strong>{roomCode}</strong><span>Local Room</span></div>
             </div>
           </div>
 
@@ -356,35 +255,10 @@ function App() {
               <h2 className="section-title">Operator Profile</h2>
             </div>
             <div className="profile-card">
-              <div className="profile-card__row">
-                <span>Wallet</span>
-                <strong>{shortWallet}</strong>
-              </div>
-              <div className="profile-card__row">
-                <span>Room</span>
-                <strong>{roomId}</strong>
-              </div>
-              <div className="profile-card__row">
-                <span>Match State</span>
-                <strong>{inBattle ? 'In Battle' : 'Lobby'}</strong>
-              </div>
-            </div>
-            <div className="quick-actions">
-              <button className="btn btn--primary" onClick={connectWallet}>Refresh Wallet</button>
-              <button className="btn btn--violet" onClick={() => setView('leaderboard')}>Open Leaderboard</button>
-              <button className="btn btn--outline" onClick={() => setView('arena')}>Arena Home</button>
+              <div className="profile-card__row"><span>Wallet</span><strong>{shortWallet}</strong></div>
+              <div className="profile-card__row"><span>Host Code</span><strong>{roomCode}</strong></div>
             </div>
           </div>
-        </section>
-
-        <section className="panel-shell panel-shell--wide">
-          <div className="panel-shell__header">
-            <div>
-              <span className="badge badge--amber">RANKING</span>
-              <h2 className="section-title">Leaderboard</h2>
-            </div>
-          </div>
-          <Leaderboard />
         </section>
       </main>
     );
@@ -393,7 +267,6 @@ function App() {
   const navItems = [
     { id: 'arena', label: 'Arena' },
     { id: 'leaderboard', label: 'Leaderboard' },
-    { id: 'profile', label: 'Profile' },
   ];
 
   return (
@@ -402,12 +275,10 @@ function App() {
         <div className="topbar__brand" onClick={() => setView('arena')} role="button" tabIndex={0}>
           <span>ALGO_ARENA</span>
         </div>
-
-        <nav className="topbar__nav" aria-label="Primary">
+        <nav className="topbar__nav">
           {navItems.map((item) => (
             <button
               key={item.id}
-              type="button"
               className={`topbar__nav-item ${view === item.id ? 'is-active' : ''}`}
               onClick={() => setView(item.id)}
               disabled={!walletAddress && item.id !== 'arena'}
@@ -416,13 +287,12 @@ function App() {
             </button>
           ))}
         </nav>
-
         <div className="topbar__actions">
           <div className="status-chip status-chip--compact">{shortWallet}</div>
           {!walletAddress ? (
             <button className="btn btn--primary btn--small" onClick={connectWallet}>CONNECT WALLET</button>
           ) : (
-            <button className="btn btn--outline btn--small" onClick={() => setView('arena')}>ROOM {roomCode}</button>
+            <button className="btn btn--outline btn--small" onClick={() => setView('arena')}>ROOM {roomId}</button>
           )}
         </div>
       </header>
@@ -432,12 +302,7 @@ function App() {
       </div>
 
       {winner && (
-        <BattleResult
-          winnerId={winner}
-          walletAddress={walletAddress}
-          role={role}
-          resetArena={resetArena}
-        />
+        <BattleResult winnerId={winner} walletAddress={walletAddress} role={role} resetArena={resetArena} />
       )}
     </div>
   );
