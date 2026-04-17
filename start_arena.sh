@@ -8,7 +8,7 @@ LAN_IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/nul
 echo "[1/3] Booting AI Anti-Cheat & Plagiarism Engine..."
 cd ml-services
 # Ensure you have uvicorn and fastapi installed: pip install fastapi uvicorn deepface scikit-learn python-multipart
-uvicorn main:app --reload --port 8000 &
+uvicorn main:app --reload --port 8080 &
 ML_PID=$!
 cd ..
 

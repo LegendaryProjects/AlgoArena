@@ -1,68 +1,101 @@
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useCallback, useEffect, useState } from 'react';
 import Webcam from 'react-webcam';
 import axios from 'axios';
 import { BACKEND_URL } from '../config';
 
 export default function ProctoringCam({ inBattle }) {
   const webcamRef = useRef(null);
-  const [isVerified, setIsVerified] = useState(true);
+  const [status, setStatus] = useState("Awaiting Camera...");
+  const [verified, setVerified] = useState(true);
+  
+  // NEW: Hard lock state if the OS or browser denies camera access
+  const [camError, setCamError] = useState(false);
 
   const captureAndVerify = useCallback(async () => {
-    // We only want to run proctoring if the user is actively in a battle
-    if (!webcamRef.current || !inBattle) return;
-    
-    // Extract the frame as a base64 string
-    const imageSrc = webcamRef.current.getScreenshot();
-    if (!imageSrc) return;
+    if (camError) return; // Do not attempt to hit the backend if the camera is broken
 
-    try {
-      const response = await axios.post(`${BACKEND_URL}/proctor-check`, {
-        image: imageSrc
-      });
-
-      if (response.data.success) {
-        setIsVerified(response.data.verified);
-        
-        if (!response.data.verified) {
-          console.warn("[ANTI-CHEAT] Player substitution detected!");
-          // TODO: Emit a socket event here to disqualify the player
-          // socket.emit("cheat_detected", { roomId, walletAddress });
+    if (webcamRef.current) {
+      const imageSrc = webcamRef.current.getScreenshot();
+      if (imageSrc) {
+        try {
+          const response = await axios.post(`${BACKEND_URL}/proctor-check`, { image: imageSrc });
+          if (!response.data.verified && !response.data.unavailable) {
+             setVerified(false);
+             setStatus("⚠️ Face Mismatch!");
+          } else if (response.data.unavailable) {
+             setStatus("⚠️ ML Offline");
+          } else {
+             setVerified(true);
+             setStatus("🟢 Face Verified");
+          }
+        } catch (error) { 
+          console.error("Proctoring error:", error); 
+          setStatus("⚠️ Server Error");
         }
       }
-    } catch (error) {
-      console.error("Proctoring service unavailable:", error);
     }
-  }, [inBattle]);
+  }, [camError]);
 
   useEffect(() => {
-    // Run the DeepFace verification every 10 seconds
-    let interval;
-    if (inBattle) {
-      interval = setInterval(captureAndVerify, 10000);
+    // If the camera is denied or hardware-locked, force the error UI and stop everything
+    if (camError) {
+      setStatus("❌ Camera Blocked");
+      return;
     }
-    return () => clearInterval(interval);
-  }, [inBattle, captureAndVerify]);
+
+    if (inBattle) {
+       setStatus("🟢 Proctoring Active");
+       // Take a snapshot every 15 seconds to send to the ML server
+       const interval = setInterval(() => captureAndVerify(), 15000);
+       return () => clearInterval(interval);
+    } else {
+       setStatus("Camera Standby");
+    }
+  }, [inBattle, captureAndVerify, camError]);
 
   return (
-    <div className="proctoring-wrapper" style={{ borderColor: isVerified ? 'rgba(57, 255, 20, 0.28)' : 'rgba(255, 115, 81, 0.35)' }}>
-      <div className="proctoring-header">
-        <div>
-          <span className="badge badge--green">PROCTOR CAM</span>
-          <h3 className="proctoring-title">{isVerified ? 'Identity Verified' : 'Unrecognized Face'}</h3>
-        </div>
+    <div className="proctor-widget" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      <div 
+        className="proctor-status" 
+        style={{ 
+          // Turn text red if they aren't verified OR if their camera is broken
+          color: verified && !camError ? 'var(--success)' : 'var(--danger)', 
+          fontSize: '0.85rem', 
+          fontWeight: 'bold',
+          fontFamily: 'monospace'
+        }}
+      >
+        {status}
       </div>
-
-      <div className="proctoring-status" style={{ color: isVerified ? '#39ff14' : '#ff7351' }}>
-        {isVerified ? '🛡 Secure' : '⚠ Attention Required'}
-      </div>
-
-      <div className="proctoring-frame">
-        <Webcam
-          audio={false}
-          ref={webcamRef}
-          screenshotFormat="image/jpeg"
-          mirrored
-          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+      
+      <div 
+        className="cam-container" 
+        style={{ 
+          borderRadius: '8px', 
+          overflow: 'hidden', 
+          border: `2px solid ${verified && !camError ? '#333' : 'var(--danger)'}`,
+          backgroundColor: '#111',
+          minHeight: '150px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}
+      >
+        <Webcam 
+           audio={false} 
+           ref={webcamRef} 
+           screenshotFormat="image/jpeg" 
+           width="100%" 
+           style={{ display: "block", objectFit: 'cover' }} 
+           onUserMedia={() => {
+             setCamError(false); // Camera successfully grabbed!
+             setStatus(inBattle ? "🟢 Proctoring Active" : "🟢 Camera Ready");
+           }}
+           onUserMediaError={(err) => {
+             console.error("Camera Hardware Error:", err);
+             setCamError(true); // Hard lock the UI
+             setStatus("❌ Permission Denied");
+           }}
         />
       </div>
     </div>

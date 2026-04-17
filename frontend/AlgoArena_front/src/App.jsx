@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ethers } from 'ethers';
 import { io } from 'socket.io-client';
+import axios from 'axios';
 import './App.css';
 import ArenaEditor from './components/ArenaEditor';
 import ProctoringCam from './components/ProctoringCam';
@@ -32,12 +33,12 @@ function App() {
   const [problemSlug, setProblemSlug] = useState('');
   const [view, setView] = useState('arena');
   const [roomCode] = useState(createRoomCode);
+  const [problems, setProblems] = useState([]);
 
   const shortWallet = useMemo(() => {
     if (!walletAddress) {
       return 'Disconnected';
     }
-
     return `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`;
   }, [walletAddress]);
 
@@ -92,12 +93,21 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const fetchProblems = async () => {
+      try {
+        const res = await axios.get(`${BACKEND_URL}/problems`);
+        if (res.data.success) setProblems(res.data.problems);
+      } catch (err) { console.error("Could not fetch problem list", err); }
+    };
+    fetchProblems();
+  }, []);
+
   const joinArena = () => {
     if (!walletAddress) {
       alert('Connect wallet first!');
       return;
     }
-
     setRoomId('arena-room-1');
     setRole('player');
     setView('battle');
@@ -109,7 +119,6 @@ function App() {
       alert('Connect wallet first!');
       return;
     }
-
     setRoomId('arena-room-1');
     setRole('spectator');
     setView('spectator');
@@ -278,7 +287,13 @@ function App() {
             </section>
 
             <section className="battle-column battle-column--editor">
-              <ArenaEditor socket={socket} roomId={roomId} walletAddress={walletAddress} opponentCode={opponentCode} />
+              <ArenaEditor 
+                socket={socket} 
+                roomId={roomId} 
+                walletAddress={walletAddress} 
+                opponentCode={opponentCode} 
+                problemSlug={problemSlug} 
+              />
             </section>
 
             <aside className="battle-column battle-column--side">

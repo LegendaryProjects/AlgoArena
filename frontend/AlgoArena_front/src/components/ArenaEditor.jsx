@@ -3,13 +3,11 @@ import Editor from '@monaco-editor/react';
 import axios from 'axios';
 import { BACKEND_URL } from '../config';
 
-export default function ArenaEditor({ socket, roomId, walletAddress, opponentCode }) {
-  const [code, setCode] = useState("#include <iostream>\nusing namespace std;\n\nint main() {\n    // Your code here\n    return 0;\n}");
+export default function ArenaEditor({ socket, roomId, walletAddress, opponentCode, problemSlug }) {
   const [language, setLanguage] = useState('cpp');
+  const [code, setCode] = useState("#include <iostream>\nusing namespace std;\n\nint main() {\n    // Your code here\n    return 0;\n}");
   const [output, setOutput] = useState('Ready to compile.');
   const [isExecuting, setIsExecuting] = useState(false);
-
-  const problemId = 1;
 
   const handleEditorChange = (value = '') => {
     setCode(value);
@@ -20,6 +18,20 @@ export default function ArenaEditor({ socket, roomId, walletAddress, opponentCod
     });
   };
 
+  const handleLanguageChange = (event) => {
+    const newLang = event.target.value;
+    setLanguage(newLang);
+    
+    // Automatically switch boilerplate code when changing languages
+    if (newLang === 'cpp') {
+      setCode("#include <iostream>\nusing namespace std;\n\nint main() {\n    // Your code here\n    return 0;\n}");
+    } else if (newLang === 'python') {
+      setCode("# Your Python solution here\n\n");
+    } else if (newLang === 'javascript') {
+      setCode("// Your JavaScript solution here\n\n");
+    }
+  };
+
   const executeCode = async () => {
     setIsExecuting(true);
     setOutput('Compiling and running in secure Docker sandbox...');
@@ -27,7 +39,7 @@ export default function ArenaEditor({ socket, roomId, walletAddress, opponentCod
     try {
       const response = await axios.post(`${BACKEND_URL}/run-code`, {
         code,
-        problemId,
+        problemId: problemSlug || 1, // Dynamically use the LeetCode slug
         language,
       });
 
@@ -39,7 +51,7 @@ export default function ArenaEditor({ socket, roomId, walletAddress, opponentCod
       let resultText = `Output:\n${response.data.output}\n\n`;
 
       if (!response.data.passed) {
-        setOutput(`${resultText}❌ FAILED.\nExpected: ${response.data.expected}`);
+        setOutput(`${resultText}❌ FAILED.\nExpected: ${response.data.expected || 'Correct LeetCode output'}`);
         return;
       }
 
@@ -73,19 +85,22 @@ export default function ArenaEditor({ socket, roomId, walletAddress, opponentCod
     }
   };
 
+  // Dynamically render the correct file extension in the UI badge
+  const fileExtension = language === 'python' ? 'py' : language === 'javascript' ? 'js' : 'cpp';
+
   return (
     <div className="editor-shell">
       <div className="editor-container">
         <div className="monaco-wrapper">
           <div className="editor-header">
             <div className="code-status">
-              <span className="badge badge--green">solution.py</span>
+              <span className="badge badge--green">solution.{fileExtension}</span>
               <span className="code-status__chip">{walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}</span>
             </div>
             <div className="editor-controls">
               <select
                 value={language}
-                onChange={(event) => setLanguage(event.target.value)}
+                onChange={handleLanguageChange}
                 className="editor-select"
               >
                 <option value="cpp">C++ (g++)</option>
