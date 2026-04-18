@@ -3,6 +3,7 @@ import http from "http";
 import { Server } from "socket.io";
 import cors from "cors";
 import { spawn } from "child_process";
+import fs from "fs";
 import axios from "axios";
 import FormData from "form-data";
 import { fileURLToPath } from "url";
@@ -16,7 +17,6 @@ const MAX_PORT_ATTEMPTS = 20;
 const HOST = process.env.HOST || "0.0.0.0";
 const ML_SERVICE_URL = process.env.ML_SERVICE_URL || "http://127.0.0.1:8080";
 
-// 1. THE VERIFIABLE PROBLEM BANK 
 const localProblems = [
   { 
     id: "arena-gateway", 
@@ -70,7 +70,7 @@ io.on('connection', (socket) => {
         if (roomSize === 2 && !activeRooms[roomId]) {
             activeRooms[roomId] = true;
             
-            // REVERTED: Pulls a random problem from the LeetCode bank dynamically!
+            // DYNAMIC PROBLEM SELECTOR IS BACK
             const randomProblem = leetcodeBank.length > 0 
                 ? leetcodeBank[Math.floor(Math.random() * leetcodeBank.length)].titleSlug 
                 : "two-sum";
@@ -142,26 +142,31 @@ app.get("/problem/:slug", async (req, res) => {
 });
 
 /* =========================================================
-   DOCKER EXECUTION (THE BASE64 INJECTION FIX)
+   DOCKER EXECUTION (READ-ONLY MOUNT FIX)
    ========================================================= */
 app.post("/run-code", async (req, res) => {
   const { code, problemId, language } = req.body;
   const currentProblem = localProblems.find(p => p.id === problemId);
 
   let fileExtension = language === "cpp" ? "cpp" : language === "python" ? "py" : "js";
+  
+  // NOTE: Binary is output to /tmp/out inside Docker, NEVER to the host system!
   let compileAndRunCommand = language === "cpp" 
-    ? "g++ solution.cpp -o out && ./out" 
-    : language === "python" ? "python3 solution.py" : "node solution.js";
+    ? "g++ /app/solution.cpp -o /tmp/out && /tmp/out" 
+    : language === "python" ? "python3 /app/solution.py" : "node /app/solution.js";
+
+  const tempDir = path.join(__dirname, "temp", `run_${Date.now()}_${Math.floor(Math.random()*10000)}`); 
+  const filePath = path.join(tempDir, `solution.${fileExtension}`);
 
   try {
-    // Convert user code to base64 to bypass standard input streams completely
-    const base64Code = Buffer.from(code || " ").toString("base64");
-    const dockerCmd = `echo '${base64Code}' | base64 -d > solution.${fileExtension} && ${compileAndRunCommand}`;
+    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+    fs.writeFileSync(filePath, code);
 
     const dockerArgs = [
       "run", "--rm", "--network", "none", "--memory", "256m", "--cpus", "0.5",
+      "-v", `${tempDir}:/app:ro`, // :ro means READ-ONLY. Docker physically cannot lock the host folder.
       "algo-sandbox", 
-      "sh", "-c", dockerCmd
+      "sh", "-c", compileAndRunCommand
     ];
 
     const child = spawn("docker", dockerArgs);
@@ -169,11 +174,10 @@ app.post("/run-code", async (req, res) => {
     let output = "";
     let errorOutput = "";
 
-    // 10-Second Auto-Kill for infinite loops
     const timeoutId = setTimeout(() => {
         child.kill("SIGKILL");
         if (!res.headersSent) {
-            res.json({ success: false, output: "Execution Timed Out! (Infinite loop detected or container hung)" });
+            res.json({ success: false, output: "Execution Timed Out! (Infinite loop detected)" });
         }
     }, 10000);
 
@@ -187,6 +191,14 @@ app.post("/run-code", async (req, res) => {
 
     child.on("close", (exitCode) => {
       clearTimeout(timeoutId);
+
+      // Safe cleanup of the Read-Only folder
+      try {
+        if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true });
+      } catch (e) {
+        console.error("Cleanup warning:", e.message);
+      }
+
       if (res.headersSent) return;
 
       if (exitCode === 0) {
@@ -195,10 +207,14 @@ app.post("/run-code", async (req, res) => {
         let passed = false;
         let expected = "Unknown (LeetCode API hides test cases)";
 
-        // Only grant a strict pass if it is a verifiable local problem
         if (currentProblem) {
+            // Strict check for verifiable local problems
             passed = (cleanOutput === currentProblem.expectedOutput);
             expected = currentProblem.expectedOutput;
+        } else {
+            // Permissive check for LeetCode: If it compiles without crashing, you win.
+            passed = true;
+            expected = "Any valid output (LeetCode Test Mode)";
         }
 
         res.json({ success: true, output: cleanOutput || "Compiled Successfully (No Output)", passed, expected });
@@ -214,17 +230,50 @@ app.post("/run-code", async (req, res) => {
 /* =========================================================
    ML & BLOCKCHAIN BRIDGES
    ========================================================= */
+   app.get("/leaderboard", (req, res) => {
+  try {
+    const cachePath = path.join(__dirname, "temp", "leaderboard-cache.json");
+    if (fs.existsSync(cachePath)) {
+      const data = fs.readFileSync(cachePath, "utf-8");
+      return res.json({ success: true, leaderboard: JSON.parse(data) });
+    }
+    
+    // Fallback if the cache file doesn't exist yet
+    res.json({ 
+      success: true, 
+      leaderboard: [
+        { address: "0x0000...0000", wins: 0, matches: 0 }
+      ] 
+    });
+  } catch (error) {
+    res.json({ success: true, leaderboard: [] });
+  }
+});
+
+
 app.post("/proctor-check", async (req, res) => {
   const { image } = req.body;
   try {
     const base64Data = image.replace(/^data:image\/jpeg;base64,/, "");
+    const imageBuffer = Buffer.from(base64Data, "base64");
+    
     const form = new FormData();
-    form.append("reference_img", Buffer.from(base64Data, "base64"), "ref.jpg");
-    form.append("current_img", Buffer.from(base64Data, "base64"), "curr.jpg");
+    // CRITICAL FIX: Python FastAPI requires explicit filenames AND content types!
+    // Without contentType, Python throws an error and Node thinks the server is offline.
+    const refBuffer  = Buffer.from(referenceImage.replace(/^data:image\/jpeg;base64,/, ""), "base64");
+    const currBuffer = Buffer.from(currentImage.replace(/^data:image\/jpeg;base64,/, ""), "base64");
+    form.append("reference_img", refBuffer, { filename: "ref.jpg", contentType: "image/jpeg" });
+    form.append("current_img",   currBuffer, { filename: "curr.jpg", contentType: "image/jpeg" });
 
     const mlResponse = await axios.post(`${ML_SERVICE_URL}/verify-face`, form, { headers: form.getHeaders() });
     res.json({ success: true, verified: mlResponse.data.is_same_person });
   } catch (error) {
+    // If Python throws an error (like a 500 when no face is found, or 422 for bad format), treat it as a mismatch, not offline!
+    if (error.response) {
+      console.log(`ML Server is ONLINE, but rejected the scan (Status ${error.response.status}). Treating as Face Mismatch.`);
+      return res.json({ success: true, verified: false }); 
+    }
+    console.error("ML Service is completely unreachable:", error.message);
     res.json({ success: false, verified: true, unavailable: true });
   }
 });
